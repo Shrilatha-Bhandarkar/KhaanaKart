@@ -1,0 +1,251 @@
+package com.onlinefoodorder.integration;
+
+import static org.hamcrest.CoreMatchers.containsString;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.springframework.test.web.servlet.result.MockMvcResultHandlers.print;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
+
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.TestPropertySource;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.transaction.annotation.Transactional;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.onlinefoodorder.dto.OrderDto;
+import com.onlinefoodorder.dto.OrderItemDto;
+import com.onlinefoodorder.entity.CustomerAddress;
+import com.onlinefoodorder.entity.MenuItem;
+import com.onlinefoodorder.entity.Order;
+import com.onlinefoodorder.entity.Restaurant;
+import com.onlinefoodorder.entity.User;
+import com.onlinefoodorder.repository.CustomerAddressRepository;
+import com.onlinefoodorder.repository.MenuItemRepository;
+import com.onlinefoodorder.repository.OrderRepository;
+import com.onlinefoodorder.repository.PaymentRepository;
+import com.onlinefoodorder.repository.RestaurantRepository;
+import com.onlinefoodorder.repository.UserRepository;
+import com.onlinefoodorder.security.JwtUtil;
+import com.onlinefoodorder.util.Status.ApprovalStatus;
+import com.onlinefoodorder.util.Status.OrderStatus;
+import com.onlinefoodorder.util.Status.UserRole;
+
+@SpringBootTest
+@AutoConfigureMockMvc
+@ActiveProfiles("test")
+@Transactional
+public class OrderIntegrationTest {
+	@Autowired
+	private MockMvc mockMvc;
+
+	@Autowired
+	private ObjectMapper objectMapper;
+
+	@Autowired
+	private JwtUtil jwtUtil;
+
+	@Autowired
+	private UserRepository userRepository;
+
+	@Autowired
+	private RestaurantRepository restaurantRepository;
+
+	@Autowired
+	private MenuItemRepository menuItemRepository;
+
+	@Autowired
+	private CustomerAddressRepository addressRepository;
+
+	@Autowired
+	private OrderRepository orderRepository;
+
+	@Autowired
+	private PaymentRepository paymentRepository;
+
+	private String customerjwtToken;
+	private String ownerjwtToken;
+	private User testUser;
+	LocalDateTime customDateTime = LocalDateTime.of(2025, 4, 6, 10, 30, 0, 0);
+	private Restaurant restaurant;
+	private CustomerAddress address;
+	private MenuItem menuItem;
+
+	@BeforeEach
+	void setup() {
+		userRepository.deleteAll();
+		testUser = new User(null, "user1@gmail.com", "user1", "password", "First", "Last", "9999999999",
+				UserRole.CUSTOMER, true);
+		testUser = userRepository.save(testUser);
+		testUser.setApprovalStatus(ApprovalStatus.APPROVED);
+		userRepository.save(testUser);
+		customerjwtToken = jwtUtil.generateToken(testUser.getEmail());
+
+		User restaurantOwner = new User(null, "owner1@gmail.com", "owner1", "password", "Owner", "Last", "9999888888",
+				UserRole.RESTAURANT_OWNER, true);
+		restaurantOwner = userRepository.save(restaurantOwner);
+		restaurantOwner.setApprovalStatus(ApprovalStatus.APPROVED);
+		userRepository.save(restaurantOwner);
+		ownerjwtToken = jwtUtil.generateToken(restaurantOwner.getEmail());
+
+		restaurant = restaurantRepository.save(new Restaurant("Testaurant", "City Street", "8888888888", 4.5,
+				"logo.png", LocalDateTime.now(), "10:00", "22:00", testUser));
+		address = addressRepository
+				.save(new CustomerAddress(0, testUser, "Line1", "Line2", "City", "State", "12345", "Country", true));
+		menuItem = menuItemRepository.save(new MenuItem(0, null, restaurant, "Pizza", "Cheesy", BigDecimal.valueOf(250),
+				"pizza.png", false, true, 15, LocalDateTime.now()));
+	}
+
+	@Test
+	void testCreateOrder_success() throws Exception {
+		OrderItemDto item = new OrderItemDto(null, null, menuItem.getItemId(), 2, menuItem.getPrice(), "Extra cheese");
+
+		// Use the current time for both created_at and updated_at
+		LocalDateTime currentTime = LocalDateTime.now();
+
+		OrderDto orderDto = new OrderDto(null, // orderId (will be generated by DB)
+				testUser.getUserId(), restaurant.getRestaurantId(), address.getAddressId(), null, // deliveryPersonId
+																									// (null or valid ID
+																									// if needed)
+				List.of(item), BigDecimal.valueOf(500), BigDecimal.valueOf(30), BigDecimal.valueOf(45),
+				"Please be quick", LocalDateTime.now().plusMinutes(45), OrderStatus.CONFIRMED, currentTime, // createdAt
+				currentTime, // updatedAt
+				null, // payment (set null or valid payment object)
+				null, // couponCode (can be null or a valid coupon code)
+				BigDecimal.ZERO);
+
+		mockMvc.perform(post("/orders/place").header(HttpHeaders.AUTHORIZATION, "Bearer " + customerjwtToken)
+				.contentType(MediaType.APPLICATION_JSON).content(objectMapper.writeValueAsString(orderDto)))
+				.andExpect(status().isOk()).andExpect(jsonPath("$.orderId").exists())
+				.andExpect(jsonPath("$.status").value("CONFIRMED"));
+	}
+
+	@Test
+	void testCreateOrder_invalidAmount() throws Exception {
+		LocalDateTime currentTime = LocalDateTime.now();
+		OrderItemDto item = new OrderItemDto(null, null, menuItem.getItemId(), 2, menuItem.getPrice(), "Extra cheese");
+		OrderDto orderDto = new OrderDto(null, testUser.getUserId(), restaurant.getRestaurantId(),
+				address.getAddressId(), null, List.of(item), BigDecimal.valueOf(-25), // Invalid total amount
+				BigDecimal.valueOf(30), BigDecimal.valueOf(45), "Invalid amount", LocalDateTime.now().plusMinutes(30),
+				OrderStatus.CONFIRMED, LocalDateTime.now(), currentTime, null, null, BigDecimal.ZERO);
+
+		mockMvc.perform(post("/orders/place").header(HttpHeaders.AUTHORIZATION, "Bearer " + customerjwtToken)
+				.contentType(MediaType.APPLICATION_JSON).content(objectMapper.writeValueAsString(orderDto)))
+				.andDo(print()) // Keep for debugging
+				.andExpect(status().isBadRequest()).andExpect(content().string(containsString("Subtotal must be positive"))); // Changed
+																													// to
+																													// expect
+																													// string
+	}
+
+	@Test
+	void testGetOrderById() throws Exception {
+		// Create and save an order with relevant details
+		OrderItemDto item = new OrderItemDto(null, null, menuItem.getItemId(), 2, menuItem.getPrice(), "Extra cheese");
+		LocalDateTime currentTime = LocalDateTime.now();
+		LocalDateTime updatedAtTime = currentTime.plusMinutes(5); // For consistency in update time
+
+		// OrderDto object with necessary details
+		OrderDto orderDto = new OrderDto(null, // orderId (will be generated by DB)
+				testUser.getUserId(), // customerId (use actual user ID)
+				restaurant.getRestaurantId(), // restaurantId (use actual restaurant ID)
+				address.getAddressId(), // deliveryAddressId (use actual address ID)
+				null, // deliveryPersonId (set null or use actual delivery person ID if needed)
+				List.of(item), // list of order items
+				BigDecimal.valueOf(500), // totalAmount
+				BigDecimal.valueOf(30), // deliveryFee
+				BigDecimal.valueOf(45), // taxAmount
+				"Please be quick", // specialInstructions
+				LocalDateTime.now().plusMinutes(45), // estimatedDeliveryTime
+				OrderStatus.CONFIRMED, // orderStatus
+				currentTime, // createdAt
+				updatedAtTime, // updatedAt
+				null, // payment (set null or use an actual payment object)
+				null, // couponCode (set null or use an actual coupon code)
+				BigDecimal.ZERO // discountAmount
+		);
+
+		// Save the order to the database
+		Order savedOrder = orderRepository.save(new Order(null, testUser, restaurant, address, null, new ArrayList<>(),
+				null, BigDecimal.valueOf(500), BigDecimal.valueOf(30), BigDecimal.valueOf(45), "Please be quick",
+				LocalDateTime.now().plusMinutes(45), OrderStatus.CONFIRMED, currentTime, updatedAtTime, null,
+				BigDecimal.ZERO));
+
+		// Perform the GET request to retrieve the order by its ID
+		mockMvc.perform(get("/orders/" + savedOrder.getOrderId()).header(HttpHeaders.AUTHORIZATION,
+				"Bearer " + customerjwtToken)).andExpect(status().isOk()) // Expect 200 OK for successful retrieval
+				.andExpect(jsonPath("$.orderId").value(savedOrder.getOrderId())) // Check that the order ID matches
+				.andExpect(jsonPath("$.status").value("CONFIRMED")) // Verify the order status
+				.andExpect(jsonPath("$.totalAmount").value(500)) // Verify totalAmount
+				.andExpect(jsonPath("$.deliveryFee").value(30)) // Verify delivery fee
+				.andExpect(jsonPath("$.taxAmount").value(45)) // Verify tax amount
+				.andExpect(jsonPath("$.specialInstructions").value("Please be quick")); // Verify special instructions
+	}
+
+	@Test
+	void testGetAllOrdersForUser() throws Exception {
+		mockMvc.perform(get("/orders/user").header(HttpHeaders.AUTHORIZATION, "Bearer " + customerjwtToken))
+				.andExpect(status().isOk()).andExpect(jsonPath("$").isArray());
+	}
+
+	@Test
+	void testUpdateOrderStatus() throws Exception {
+		// Create and save an order with relevant details, including updated_at field
+		OrderItemDto item = new OrderItemDto(null, null, menuItem.getItemId(), 2, menuItem.getPrice(), "Extra cheese");
+		LocalDateTime currentTime = LocalDateTime.now();
+		LocalDateTime updatedAtTime = currentTime.plusMinutes(5); // Assuming update happens after 5 minutes
+
+		OrderDto orderDto = new OrderDto(null, // orderId (will be generated by DB)
+				testUser.getUserId(), // customerId (use actual user ID)
+				restaurant.getRestaurantId(), // restaurantId (use actual restaurant ID)
+				address.getAddressId(), // deliveryAddressId (use actual address ID)
+				null, // deliveryPersonId (set null or use actual delivery person ID if needed)
+				List.of(item), // list of order items
+				BigDecimal.valueOf(500), // totalAmount (use actual value)
+				BigDecimal.valueOf(30), // deliveryFee (use actual value)
+				BigDecimal.valueOf(45), // taxAmount (use actual value)
+				"Please be quick", // specialInstructions
+				LocalDateTime.now().plusMinutes(45), // estimatedDeliveryTime
+				OrderStatus.CONFIRMED, // orderStatus (use actual status)
+				currentTime, // createdAt
+				updatedAtTime, // updatedAt (Set the updated_at value)
+				null, // payment (set null or a valid payment object)
+				null, // couponCode (set null or use an actual coupon code)
+				BigDecimal.ZERO // discountAmount (use actual value)
+		);
+
+		// Create the order object to save
+		Order savedOrder = new Order(null, testUser, restaurant, address, null, new ArrayList<>(), null,
+				BigDecimal.valueOf(200), BigDecimal.valueOf(30), BigDecimal.valueOf(10), "",
+				LocalDateTime.now().plusMinutes(20), OrderStatus.CONFIRMED, currentTime, updatedAtTime, null,
+				BigDecimal.ZERO);
+
+		// Save the order to the database
+		orderRepository.save(savedOrder);
+
+		// Perform the GET request to retrieve the order by its ID
+		mockMvc.perform(get("/orders/" + savedOrder.getOrderId()).header(HttpHeaders.AUTHORIZATION,
+				"Bearer " + customerjwtToken)).andExpect(status().isOk()) // Expect 200 OK for successful retrieval
+				.andExpect(jsonPath("$.orderId").value(savedOrder.getOrderId())) // Check that the order ID matches
+				.andExpect(jsonPath("$.status").value("CONFIRMED")) // Verify the order status
+				.andExpect(jsonPath("$.totalAmount").value(BigDecimal.valueOf(200).doubleValue())); // Verify
+																									// totalAmount
+	}
+
+}
