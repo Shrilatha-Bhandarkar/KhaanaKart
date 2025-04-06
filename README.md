@@ -1,6 +1,6 @@
 # 🍽️ KhaanaKart - Online Food Ordering System
 
-KhaanaKart is a full-stack **Spring Boot**-based **Online Food Ordering System** that provides a seamless interface for users to browse restaurants, add items to their cart, place orders, make payments, and submit reviews. It supports multiple roles like **Admin**, **Restaurant Owner**, **Customer**, and **Delivery Person** with **JWT-based authentication** and **RBAC (Role-Based Access Control)**.
+KhaanaKart is a **Spring Boot**-based **Online Food Ordering System** that provides a seamless interface for users to browse restaurants, add items to their cart, place orders, make payments, and submit reviews. It supports multiple roles like **Admin**, **Restaurant Owner**, **Customer**, and **Delivery Person** with **JWT-based authentication** and **RBAC (Role-Based Access Control)**.
 
 ---
 
