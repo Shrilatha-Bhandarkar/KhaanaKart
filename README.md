@@ -23,10 +23,10 @@ com.onlinefoodorder
 ├── OnlineFoodOrderingSystemApplication.java   # Main application entry point
 
 ├── config/                                    # Security and JWT configuration
-│   ├── JwtAuthenticationFilter.java
+│   ├── SecurityConfig.java
+├── security/ 
 │   ├── JwtUtil.java
-│   └── SecurityConfig.java
-
+│   └── JwtAuthenticationFilter.java
 ├── controller/                                # REST API Controllers
 │   ├── AdminController.java
 │   ├── AuthController.java
@@ -146,7 +146,7 @@ Manage delivery addresses and tracking
 
 ⭐ Reviews
 Customers can review restaurants and menu items
-
+w333333333333333333333333333333333333 
 💸 Coupons & Discounts
 Apply promotional codes and discounts
 
